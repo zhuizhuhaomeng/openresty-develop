@@ -1,0 +1,402 @@
+[TOC]
+
+**本文档基于CentOS8编写**
+
+
+
+# 开发环境搭建
+
+## sudo 用户添加
+
+```shell
+vim /etc/sudoers
+## Same thing without a password
+lijunlong       ALL=(ALL)       NOPASSWD: ALL
+```
+
+推荐用普通用户开发nginx，防止一个命令错误导致删库跑路。
+
+
+
+```
+[lijunlong@lijunlong ~]$ cat > ~/.ssh/config  << EOF
+Host *
+    ServerAliveInterval 60
+EOF
+```
+
+
+
+
+
+## 安装软件
+
+```shell
+yum install -y git
+yum install -y yum-utils
+yum install -y epel-release
+yum install -y ack
+yum install -y gcc
+yum install -y gcc-c++
+yum install -y gd-devel
+yum install -y redis
+yum install -y memcached
+yum install -y mysql-server
+yum install -y wget
+yum install -y autoconf 
+yum install -y cmake
+yum install -y automake
+yum install -y libtool
+yum install -y gettext-common-devel
+yum install -y gettext-devel
+yum install -y autoconf-archive
+yum install -y txt2man
+yum install -y openssl-devel
+yum install -y clang
+yum install -y patch
+yum install -y python2
+
+
+wget -O axel.tar.gz https://github.com/axel-download-accelerator/axel/archive/v2.17.9.tar.gz
+cd axel-2.17.9
+autoreconf -i
+./configure && make && make install
+cd .. && rm -fr axel-2.17.9
+
+#windows 连接linux建议安装
+yum install -y lrzsz
+
+#安装 Test::Nginx IPC::Run
+cpanm --notest Test::Nginx IPC::Run
+```
+
+
+
+## 配置软件
+
+```shell
+systemctl enable redis
+systemctl start redis
+systemctl enable memcached
+systemctl start memcached
+systemctl enable mysqld
+systemctl start mysqld
+
+# travis上的创建命令失败，替换如下
+mysql -uroot -e "drop database if exists ngx_test;use mysql;delete from user where User='ngx_test';flush privileges;"
+mysql -uroot -e "create database ngx_test; CREATE USER 'ngx_test'@'%' IDENTIFIED BY 'ngx_test'; grant all on ngx_test.* to 'ngx_test'@'%'; flush privileges;"
+
+iptables -I OUTPUT 1 -p udp --dport 10086 -j REJECT
+iptables -I OUTPUT -p tcp --dst 127.0.0.2 --dport 12345 -j DROP
+iptables -I OUTPUT -p udp --dst 127.0.0.2 --dport 12345 -j DROP
+# 加入开机启动项
+cat  >> /etc/rc.local << EOF
+iptables -I OUTPUT 1 -p udp --dport 10086 -j REJECT
+iptables -I OUTPUT -p tcp --dst 127.0.0.2 --dport 12345 -j DROP
+iptables -I OUTPUT -p udp --dst 127.0.0.2 --dport 12345 -j DROP
+EOF
+
+#for axel
+# https://centos.pkgs.org/8/getpagespeed-x86_64/axel-2.16-4.el8.x86_64.rpm.html
+# yum -y install https://extras.getpagespeed.com/release-latest.rpm
+
+```
+
+
+
+## github设置
+
+### 	添加ssh的公钥
+
+下载源码推荐使用ssh的方式，因此需要将公钥添加到github上。
+
+```shell
+ssh-keygen
+cat ~/.ssh/id_rsa.pub
+```
+
+将上述公钥添加到 https://github.com/settings/keys 
+
+# 软件编译
+
+## 下载源码
+
+``` shell
+git clone git@github.com:openresty/lua-nginx-module.git
+```
+
+## 编译软件
+
+原始的编译步骤可以参考源码目录下的.travis.yml https://github.com/openresty/lua-nginx-module/blob/master/.travis.yml。这里把文件整成一个shell脚本，脚本名称为make_travis.sh
+
+**注意**
+
+1. **因为orxray依赖 python3为了防止残留导致后续开发遇到问题，下面脚本给python2做软链，使用完后立即删除**
+2. **使用脚本需要注意，这个跟脚本并没有随travis更新，遇到问题需要排查一下。比如依赖的库是否齐全，版本号是否一致**
+3. **这里将依赖下载，依赖库编译，openresty编译分成三个函数。开发中第一次全部执行，后续基本只需要执行openresty编译即可。**
+4. **因为openresty相关的库经常有更新，比如lua-resty-core。因此不重新下载库的情况下最好经常更新相关的库。**
+
+```shell
+#!/bin/bash
+set -x
+export JOBS=3
+export NGX_BUILD_JOBS=$JOBS
+export LUAJIT_PREFIX=/opt/luajit21
+export LUAJIT_LIB=$LUAJIT_PREFIX/lib
+export LUAJIT_INC=$LUAJIT_PREFIX/include/luajit-2.1
+export LUA_INCLUDE_DIR=$LUAJIT_INC
+export PCRE_VER=8.44
+export PCRE_PREFIX=/opt/pcre
+export PCRE_LIB=$PCRE_PREFIX/lib
+export PCRE_INC=$PCRE_PREFIX/include
+export OPENSSL_PREFIX=/opt/ssl
+export OPENSSL_LIB=$OPENSSL_PREFIX/lib
+export OPENSSL_INC=$OPENSSL_PREFIX/include
+export LIBDRIZZLE_PREFIX=/opt/drizzle
+export LIBDRIZZLE_INC=$LIBDRIZZLE_PREFIX/include/libdrizzle-1.0
+export LIBDRIZZLE_LIB=$LIBDRIZZLE_PREFIX/lib
+export LD_LIBRARY_PATH=$LUAJIT_LIB:$LD_LIBRARY_PATH
+export DRIZZLE_VER=2011.07.21
+export TEST_NGINX_SLEEP=0.06
+
+export NGINX_VERSION=1.17.8
+export OPENSSL_VER=1.1.1g
+export OPENSSL_PATCH_VER=1.1.1f
+export CC=clang
+
+function download_prepare()
+{
+    sudo cpanm --notest Test::Nginx IPC::Run > build.log 2>&1 || (cat build.log && exit 1)
+
+    if [ ! -f download-cache/drizzle7-$DRIZZLE_VER.tar.gz ]; then wget -P download-cache http://openresty.org/download/drizzle7-$DRIZZLE_VER.tar.gz; fi
+    if [ ! -f download-cache/pcre-$PCRE_VER.tar.gz ]; then wget -P download-cache https://ftp.pcre.org/pub/pcre/pcre-$PCRE_VER.tar.gz; fi
+    if [ ! -f download-cache/openssl-$OPENSSL_VER.tar.gz ]; then wget -P download-cache https://www.openssl.org/source/openssl-$OPENSSL_VER.tar.gz || wget -P download-cache https://www.openssl.org/source/old/${OPENSSL_VER//[a-z]/}/openssl-$OPENSSL_VER.tar.gz; fi
+
+    git clone https://github.com/openresty/test-nginx.git
+    git clone https://github.com/openresty/openresty.git ../openresty
+    git clone https://github.com/openresty/no-pool-nginx.git ../no-pool-nginx
+    git clone https://github.com/openresty/openresty-devel-utils.git
+    git clone https://github.com/openresty/mockeagain.git
+    git clone https://github.com/openresty/lua-cjson.git lua-cjson
+    git clone https://github.com/openresty/lua-upstream-nginx-module.git ../lua-upstream-nginx-module
+    git clone https://github.com/openresty/echo-nginx-module.git ../echo-nginx-module
+    git clone https://github.com/openresty/nginx-eval-module.git ../nginx-eval-module
+    git clone https://github.com/simpl/ngx_devel_kit.git ../ndk-nginx-module
+    git clone https://github.com/FRiCKLE/ngx_coolkit.git ../coolkit-nginx-module
+    git clone https://github.com/openresty/headers-more-nginx-module.git ../headers-more-nginx-module
+    git clone https://github.com/openresty/drizzle-nginx-module.git ../drizzle-nginx-module
+    git clone https://github.com/openresty/set-misc-nginx-module.git ../set-misc-nginx-module
+    git clone https://github.com/openresty/memc-nginx-module.git ../memc-nginx-module
+    git clone https://github.com/openresty/rds-json-nginx-module.git ../rds-json-nginx-module
+    git clone https://github.com/openresty/srcache-nginx-module.git ../srcache-nginx-module
+    git clone https://github.com/openresty/redis2-nginx-module.git ../redis2-nginx-module
+    git clone https://github.com/openresty/lua-resty-core.git ../lua-resty-core
+    git clone https://github.com/openresty/lua-resty-lrucache.git ../lua-resty-lrucache
+    git clone https://github.com/openresty/lua-resty-mysql.git ../lua-resty-mysql
+    git clone https://github.com/openresty/stream-lua-nginx-module.git ../stream-lua-nginx-module
+    git clone -b v2.1-agentzh https://github.com/openresty/luajit2.git luajit2
+    git clone https://github.com/openresty/lua-resty-string.git ../lua-resty-string
+
+    # mysql -uroot -e 'create database ngx_test; grant all on ngx_test.* to "ngx_test"@"%" identified by "ngx_test"; flush privileges;'
+
+    # sudo iptables -I OUTPUT 1 -p udp --dport 10086 -j REJECT
+    # sudo iptables -I OUTPUT -p tcp --dst 127.0.0.2 --dport 12345 -j DROP
+    # sudo iptables -I OUTPUT -p udp --dst 127.0.0.2 --dport 12345 -j DROP
+}
+
+function make_dep()
+{
+    cd luajit2/
+    make -j$JOBS CCDEBUG=-g Q= PREFIX=$LUAJIT_PREFIX CC=$CC XCFLAGS='-DLUA_USE_APICHECK -DLUA_USE_ASSERT -msse4.2' > build.log 2>&1 || (cat build.log && exit 1)
+
+    #make -j$JOBS CCDEBUG=-g Q= PREFIX=$LUAJIT_PREFIX CC=$CC XCFLAGS='-DLUA_USE_APICHECK -DLUA_USE_ASSERT -msse4.2 -DLUAJIT_USE_VALGRIND -DLUAJIT_USE_SYSMALLOC' CCDEBUG='-g' > build.log 2>&1 || (cat build.log && exit 1)
+    sudo make install PREFIX=$LUAJIT_PREFIX > build.log 2>&1 || (cat build.log && exit 1)
+    cd ..
+
+    tar xzf download-cache/drizzle7-$DRIZZLE_VER.tar.gz && cd drizzle7-$DRIZZLE_VER
+    ./configure --prefix=$LIBDRIZZLE_PREFIX --without-server > build.log 2>&1 || { cat build.log; exit 1; }
+
+    sudo ln -s /usr/bin/python2 /usr/bin/python
+    which python
+    make libdrizzle-1.0 -j$JOBS > build.log 2>&1 || (cat build.log && exit 1)
+    sudo make install-libdrizzle-1.0 > build.log 2>&1 || (cat build.log && exit 1)
+    sudo rm /usr/bin/python
+
+    pwd
+    cd ../mockeagain/ && make CC=$CC -j$JOBS && cd ..
+
+    cd lua-cjson/ && make -j$JOBS && sudo make install && cd ..
+
+    tar zxf download-cache/pcre-$PCRE_VER.tar.gz
+    cd pcre-$PCRE_VER/
+    ./configure --prefix=$PCRE_PREFIX --enable-jit --enable-utf --enable-unicode-properties > build.log 2>&1 || (cat build.log && exit 1)
+    make -j$JOBS > build.log 2>&1 || (cat build.log && exit 1)
+    sudo PATH=$PATH make install > build.log 2>&1 || (cat build.log && exit 1)
+    cd ..
+
+    tar zxf download-cache/openssl-$OPENSSL_VER.tar.gz
+    cd openssl-$OPENSSL_VER/
+    patch -p1 < ../../openresty/patches/openssl-$OPENSSL_PATCH_VER-sess_set_get_cb_yield.patch
+    ./config no-threads shared enable-ssl3 enable-ssl3-method -g --prefix=$OPENSSL_PREFIX -DPURIFY > build.log 2>&1 || (cat build.log && exit 1)
+    make -j$JOBS > build.log 2>&1 || (cat build.log && exit 1)
+    sudo make PATH=$PATH install_sw > build.log 2>&1 || (cat build.log && exit 1)
+    cd ..
+}
+
+function make_openresty()
+{
+    rm -fr buildroot
+    sh util/build.sh $NGINX_VERSION > build.log 2>&1 || { cat build.log && exit 1; }
+}
+
+export PATH=$PWD/work/nginx/sbin:$PWD/openresty-devel-utils:$PATH
+export NGX_BUILD_CC=$CC
+
+download_prepare
+make_dep
+make_openresty
+
+
+nginx -V
+ldd `which nginx`|grep -E 'luajit|ssl|pcre'
+
+export LD_PRELOAD=$PWD/mockeagain/mockeagain.so
+export LD_LIBRARY_PATH=$PWD/mockeagain:$LD_LIBRARY_PATH
+export TEST_NGINX_RESOLVER=8.8.8.8
+dig +short myip.opendns.com @resolver1.opendns.com || exit 0
+dig +short @$TEST_NGINX_RESOLVER openresty.org || exit 0
+dig +short @$TEST_NGINX_RESOLVER agentzh.org || exit 0
+echo "LD_PRELOAD = $LD_PRELOAD"
+
+reindex  t/*.t 2>&1 | grep -v skipped
+ngx-releng
+
+#export TEST_NGINX_USE_VALGRIND=1
+prove -I./ -Itest-nginx/lib -r t
+exit 0
+
+prove -I./ -Itest-nginx/lib -r t/002*
+prove -I./ -Itest-nginx/lib -r t/023-rewrite/sanity.t
+```
+
+上述脚本有加入代码风格检查，因为检查到问题并没有让脚本退出执行。所以要注意脚本的输出结果，如果检查到问题要立即修改。代码风格不能够依靠这个检查脚本，这个脚本是帮助大家养成符合ngx风格的习惯。
+
+# 软件测试
+
+软件测试可以把make_travis.sh 中的编译相关的三个函数注释掉，这样就直接跑测试了。
+
+不能直接手动执行prove，因为脚本里头有设置环境变量，直接跑使用的nginx等软件就不对。
+
+## 测试调试
+
+### 单独执行用例
+
+如果某个用例通不过，需要单独跑一个用例，可以添加 --- ONLY单独跑指定的用例。
+
+用例执行相关的结果存在t/servroot/目录下。比如
+
+```shell
+$ ls t/servroot/
+client_body_temp  conf  fastcgi_temp  html  logs  proxy_temp  scgi_temp  uwsgi_temp
+```
+
+想要查看生成的配置文件，错误日志等可以在这里查看。
+
+### 用例个数调整
+
+在测试文件的最开头会有测试个数的计算，最终的测试个数应该和计算的结果是一致的。
+
+```perl
+   # vim:set ft= ts=4 sw=4 et fdm=marker:
+   use t::TestJsonb;
+   
+   repeat_each(1);
+   
+   plan tests => repeat_each() * (blocks() * 3);
+
+```
+
+出现如下错误，就是用例个数对不上。预期应该是3的倍数，基本可以判断是某个用例有4个测试判断，所以变成了40个。因此上面的paln tests 可以修改成repeat_each() * (blocks() * 3 + 1)。 
+
+当然最好是每个用例保持3个测试判断比较合适。
+
+```shell
+t/iter.t .. 29/39 # Looks like you planned 39 tests but ran 40.
+t/iter.t .. Dubious, test returned 255 (wstat 65280, 0xff00)
+All 39 subtests passed 
+
+Test Summary Report
+-------------------
+t/iter.t (Wstat: 65280 Tests: 40 Failed: 1)
+  Failed test:  40
+  Non-zero exit status: 255
+  Parse errors: Bad plan.  You planned 39 tests but ran 40.
+```
+
+一般情况下都是一个指令一个判断，但是对于--- response_headers，则是一个 header是一个判断。比如下下面的测试指令的测试计数为3。
+
+```text
+--- response_body
+ arr1: 3
+ arr2: 4
+ --- response_headers
+ Content-Type: text/plain
+ Content-Length: 20
+```
+
+
+
+
+
+
+
+## 相关资料
+
+介绍Test::Nginx这个测试框架，各种各样的测试模式。
+
+https://openresty.gitbooks.io/programming-openresty/content/
+
+
+
+测试框架的函数说明可以在这里查找。
+
+https://metacpan.org/pod/Test::Nginx::Socket
+
+# git 工作流
+
+https://openresty.org/en/git-workflow.html
+
+主要是commit的日志怎么写，需要符合这个规范。
+
+
+
+# 编码风格
+
+https://openresty.org/en/c-coding-style-guide.html
+
+## 编码风格检查
+
+每次提交代码前都应该使用这两个工具检查一下
+
+https://github.com/openresty/openresty-devel-utils.git
+
+ngx-releng 检查openresty 相关的C代码（文件名称需要以ngx_开头）
+
+lua-releng  检查openresty 相关的lua代码
+
+
+
+因为ngx-releng只检查ngx开头的代码文件，因此如果不是openresty相关的工程，但是又要符合openresty的规范，那么可以用ngx-style.pl来检查,不过比ngx-releng少检查一点。
+
+
+
+BTW:
+
+ngx-releng就是nginx Release engineering的意思。
+
+lua-releng就是Lua Release engineering的意思。
+
+
+
+
+
