@@ -11,21 +11,27 @@
 ```shell
 vim /etc/sudoers
 ## Same thing without a password
-lijunlong       ALL=(ALL)       NOPASSWD: ALL
+zzhm       ALL=(ALL)       NOPASSWD: ALL
 ```
 
-推荐用普通用户开发nginx，防止一个命令错误导致删库跑路。
+推荐用普通用户开发nginx，防止一个命令错误导致删除系统根目录或者其它重要的文件。
+
+## ssh配置
+
+防止ssh连接远程机器经常断开
 
 
+```shell
+mkdir ~/.ssh/
+touch ~/.ssh/
+ssh-keygen   # 生成sshkey
 
-```
-[lijunlong@lijunlong ~]$ cat > ~/.ssh/config  << EOF
+cat > ~/.ssh/config  << EOF
 Host *
     ServerAliveInterval 60
 EOF
+chmod 600 ~/.ssh/config
 ```
-
-
 
 
 
@@ -55,9 +61,14 @@ yum install -y openssl-devel
 yum install -y clang
 yum install -y patch
 yum install -y python2
-
+yum install -y perl-App-cpanminus
+yum install -y ccache
+yum install -y hg
+yum install -y axel
+yum install -y rpm-build
 
 wget -O axel.tar.gz https://github.com/axel-download-accelerator/axel/archive/v2.17.9.tar.gz
+tar -xf axel.tar.gz
 cd axel-2.17.9
 autoreconf -i
 ./configure && make && make install
@@ -68,11 +79,20 @@ yum install -y lrzsz
 
 #安装 Test::Nginx IPC::Run
 cpanm --notest Test::Nginx IPC::Run
+cpanm JSON::XS 
 ```
 
 
 
 ## 配置软件
+
+这些配置是根据.travis.yml的如下位置代码获取的，随时间的变化可能有所变化。
+
+https://github.com/openresty/lua-nginx-module/blob/master/.travis.yml#L56
+
+https://github.com/openresty/lua-nginx-module/blob/master/.travis.yml#L95
+
+https://github.com/openresty/lua-nginx-module/blob/master/.travis.yml#L98
 
 ```shell
 systemctl enable redis
@@ -96,10 +116,8 @@ iptables -I OUTPUT -p tcp --dst 127.0.0.2 --dport 12345 -j DROP
 iptables -I OUTPUT -p udp --dst 127.0.0.2 --dport 12345 -j DROP
 EOF
 
-#for axel
-# https://centos.pkgs.org/8/getpagespeed-x86_64/axel-2.16-4.el8.x86_64.rpm.html
-# yum -y install https://extras.getpagespeed.com/release-latest.rpm
-
+sudo echo "kernel.pid_max = 10000" >> /etc/sysctl.conf
+sudo sysctl -p
 ```
 
 
@@ -117,15 +135,35 @@ cat ~/.ssh/id_rsa.pub
 
 将上述公钥添加到 https://github.com/settings/keys 
 
-# 软件编译
+如果是拷贝其它机器的密码，那么需要注意把私钥的权限修改为 600.也就是
 
-## 下载源码
-
-``` shell
-git clone git@github.com:openresty/lua-nginx-module.git
+```shell
+chmod 600 ~/.ssh/id_rsa
 ```
 
-## 编译软件
+# 下载源码
+
+1. github fork分支到个人空间
+
+   https://github.com/openresty/lua-nginx-module 右上角的Fork
+
+2. clone代码到本地
+
+   git clone git@github.com:zhuizhuhaomeng/lua-nginx-module.git
+
+3. 本地创建分支
+
+   git checkout -b feature_xxx
+
+# 配置工具
+
+下载到指定路径，并将这个库添加到/etc/bashrc的PATH环境变量。
+
+``` shell
+git clone git@github.com:openresty/openresty-devel-utils.git
+```
+
+# 编译软件
 
 原始的编译步骤可以参考源码目录下的.travis.yml https://github.com/openresty/lua-nginx-module/blob/master/.travis.yml。这里把文件整成一个shell脚本，脚本名称为make_travis.sh
 
@@ -268,6 +306,17 @@ dig +short @$TEST_NGINX_RESOLVER openresty.org || exit 0
 dig +short @$TEST_NGINX_RESOLVER agentzh.org || exit 0
 echo "LD_PRELOAD = $LD_PRELOAD"
 
+# export TEST_NGINX_CHECK_LEAK=1
+# export TEST_NGINX_POSTPONE_OUTPUT=1
+# export TEST_NGINX_EVENT_TYPE=poll
+# export MOCKEAGAIN=w
+# export MOCKEAGAIN_VERBOSE=1
+# export TEST_NGINX_NO_CLEAN=1
+# export TEST_NGINX_CHECK_LEAK_COUNT=1200
+# export TEST_NGINX_CHECK_LEAK_COUNT=1000
+
+用 Test::Nginx::Socket  测试台跑用例时，可以通过下面这个环境变量来开启“每语句 full GC 模式“:
+# export TEST_NGINX_INIT_BY_LUA="debug.sethook(function () collectgarbage() end, 'l') jit.off() package.path = '/usr/share/lua/5.1/?.lua;$PWD/../lua-resty-core/lib/?.lua;$PWD/../lua-resty-lrucache/lib/?.lua;' .. (package.path or '') require 'resty.core' require('resty.core.base').set_string_buf_size(1) require('resty.core.regex').set_buf_grow_ratio(1)"
 reindex  t/*.t 2>&1 | grep -v skipped
 ngx-releng
 
@@ -279,13 +328,13 @@ prove -I./ -Itest-nginx/lib -r t/002*
 prove -I./ -Itest-nginx/lib -r t/023-rewrite/sanity.t
 ```
 
-上述脚本有加入代码风格检查，因为检查到问题并没有让脚本退出执行。所以要注意脚本的输出结果，如果检查到问题要立即修改。代码风格不能够依靠这个检查脚本，这个脚本是帮助大家养成符合ngx风格的习惯。
+上述脚本有加入代码风格检查，因为检查到问题并没有让脚本退出执行。所以要注意脚本的输出结果，如果检查到问题要立即修改。代码风格不能够依靠这个检查脚本，这个脚本是帮助大家养成符合nginx风格的习惯。
 
 # 软件测试
 
 软件测试可以把make_travis.sh 中的编译相关的三个函数注释掉，这样就直接跑测试了。
 
-不能直接手动执行prove，因为脚本里头有设置环境变量，直接跑使用的nginx等软件就不对。
+不能直接手动执行prove，因为脚本里头有设置环境变量，直接跑使用的nginx就不是当面目录下的work/nginx/sbin/nginx。
 
 ## 测试调试
 
@@ -302,7 +351,7 @@ client_body_temp  conf  fastcgi_temp  html  logs  proxy_temp  scgi_temp  uwsgi_t
 
 想要查看生成的配置文件，错误日志等可以在这里查看。
 
-### 用例个数调整
+### 用例测试个数调整
 
 在测试文件的最开头会有测试个数的计算，最终的测试个数应该和计算的结果是一致的。
 
@@ -344,11 +393,11 @@ t/iter.t (Wstat: 65280 Tests: 40 Failed: 1)
  Content-Length: 20
 ```
 
+### 测试结束不退出
 
+export TEST_NGINX_NO_CLEAN=1
 
-
-
-
+执行prove后，nginx不会被关闭。
 
 ## 相关资料
 
@@ -362,7 +411,39 @@ https://openresty.gitbooks.io/programming-openresty/content/
 
 https://metacpan.org/pod/Test::Nginx::Socket
 
-# git 工作流
+# 提交PR
+
+## 保存本地的修改
+
+1. 本地修改和保存
+
+   git add path_to_file
+
+   git commit -m "feature: add FFI interface to verify SSL client certificate"
+
+## 提交PR
+
+1. 将代码更新到最新
+
+``` shell
+git checkout master
+git remote add op git@github.com:openresty/lua-nginx-module.git
+git pull op master
+git checkout feature_xxx
+git rebase master
+```
+
+2. 更新到自己的github空间
+
+   ``` shell
+   git push self feature_xxx
+   ```
+
+3. 创建pr
+
+   根据上一个步骤给的提示连接登录github创建pr。
+
+## git 工作流
 
 https://openresty.org/en/git-workflow.html
 
@@ -396,7 +477,23 @@ ngx-releng就是nginx Release engineering的意思。
 
 lua-releng就是Lua Release engineering的意思。
 
+# 代码阅读
 
+## C和lua接口查找
 
+目前的C和lua交互一部分是通过注册C函数到lua，一部分是通过ffi接口调用。
 
+因此如果想了解相关的接口，可以通过搜索ffi关键字和lua_pushcfunction。另一部分常数的注入可以通过搜索ngx_http_lua_inject关键字。
+
+比如：
+
+``` shell
+[ljl@localhost lua-nginx-module]$ find src -name "*.c" | xargs grep -n lua_pushcfunction
+src/ngx_http_lua_api.c:56:        lua_pushcfunction(L, func);
+src/ngx_http_lua_args.c:397:    lua_pushcfunction(L, ngx_http_lua_ngx_req_set_uri_args);
+src/ngx_http_lua_args.c:400:    lua_pushcfunction(L, ngx_http_lua_ngx_req_get_post_args);
+src/ngx_http_lua_balancer.c:370:    lua_pushcfunction(L, ngx_http_lua_traceback);
+src/ngx_http_lua_bodyfilterby.c:100:    lua_pushcfunction(L, ngx_http_lua_traceback);
+....
+```
 
