@@ -143,6 +143,29 @@ lua接口部分写得相当的绕，如下代码有稍做修改
    138	return _M
 ```
 
+### ref_in_table 
+
+``` lua
+local FREE_LIST_REF = 0
+
+function _M.ref_in_table(tb, key)
+    if key == nil then
+        return -1
+    end
+    local ref = tb[FREE_LIST_REF]
+    if ref and ref ~= 0 then
+         tb[FREE_LIST_REF] = tb[ref]
+
+    else
+        ref = #tb + 1
+    end
+    tb[ref] = key
+
+    -- print("ref key_id returned ", ref)
+    return ref
+end
+```
+
 
 
 ## register_setter/register_getter接口
@@ -235,6 +258,49 @@ lua接口部分写得相当的绕，如下代码有稍做修改
 
 ``` C
 int
+ngx_http_lua_ngx_set_ctx_helper(lua_State *L, ngx_http_request_t *r,
+    ngx_http_lua_ctx_t *ctx, int index)
+{
+    ngx_pool_t              *pool;
+
+    if (index < 0) {
+        index = lua_gettop(L) + index + 1;
+    }
+
+    if (ctx->ctx_ref == LUA_NOREF) {
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                       "lua create ngx.ctx table for the current request");
+
+        lua_pushliteral(L, ngx_http_lua_ctx_tables_key);
+        lua_rawget(L, LUA_REGISTRYINDEX);
+        lua_pushvalue(L, index);
+        ctx->ctx_ref = luaL_ref(L, -2);
+        lua_pop(L, 1);
+
+        pool = r->pool;
+        if (ngx_http_lua_ngx_ctx_add_cleanup(r, pool, ctx->ctx_ref) != NGX_OK) {
+            return luaL_error(L, "no memory");
+        }
+
+        return 0;
+    }
+
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "lua fetching existing ngx.ctx table for the current "
+                   "request");
+
+    lua_pushliteral(L, ngx_http_lua_ctx_tables_key);
+    lua_rawget(L, LUA_REGISTRYINDEX);
+    luaL_unref(L, -1, ctx->ctx_ref);
+    lua_pushvalue(L, index);
+    ctx->ctx_ref = luaL_ref(L, -2);
+    lua_pop(L, 1);
+
+    return 0;
+}
+
+
+int
 ngx_http_lua_ffi_get_ctx_ref(ngx_http_request_t *r, int *in_ssl_phase,
     int *ssl_ctx_ref)
 {
@@ -317,5 +383,22 @@ ngx_http_lua_ffi_set_ctx_ref(ngx_http_request_t *r, int ref)
     return NGX_OK;
 }
 
+static void
+ngx_http_lua_ngx_ctx_cleanup(void *data)
+{
+    lua_State       *L;
+
+    ngx_http_lua_ngx_ctx_cleanup_data_t    *clndata = data;
+
+    ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ngx_cycle->log, 0,
+                   "lua release ngx.ctx at ref %d", clndata->ref);
+
+    L = clndata->vm;
+
+    lua_pushliteral(L, ngx_http_lua_ctx_tables_key);
+    lua_rawget(L, LUA_REGISTRYINDEX);
+    luaL_unref(L, -1, clndata->ref);
+    lua_pop(L, 1);
+}
 ```
 
