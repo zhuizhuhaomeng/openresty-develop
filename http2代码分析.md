@@ -29,8 +29,6 @@ cc sslkeylog.c -shared -o libsslkeylog.so -fPIC -ldl
 sudo cp libsslkeylog.so /usr/local/lib/libsslkeylog.so
 ```
 
-
-
 ## 配置nginx
 
 注意两个env的配置
@@ -122,5 +120,7 @@ curl -kvs --http2 https://127.0.0.1:1984/t
 Edit-> Preferences -> Protocols -> TLS
 
 在(Pre)-Master-Secret log filename中选择上面配置的premaster.txt文件.
+
+**具体的数据包可以查看 data/h2**
 
 ![http2报文](images/h2.jpg)
