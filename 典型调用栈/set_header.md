@@ -1,0 +1,23 @@
+``` c
+main
+ngx_single_process_cycle
+ngx_process_events_and_timers
+ngx_epoll_process_events
+ngx_http_process_request_line
+ngx_http_process_request_headers
+ngx_http_core_run_phases
+ngx_http_core_rewrite_phase
+ngx_http_lua_rewrite_handler
+ngx_http_lua_rewrite_by_chunk
+ngx_http_lua_run_thread
+lj_BC_FUNCC
+lj_cf_ffi_meta___call
+lj_ccall_func
+lj_vm_ffi_call
+ngx_http_lua_ffi_req_set_header
+ngx_http_lua_set_input_header
+ngx_http_set_header
+ngx_http_set_header_helper
+
+```
+
