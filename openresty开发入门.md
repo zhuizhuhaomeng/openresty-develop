@@ -26,7 +26,7 @@ mkdir ~/.ssh/
 touch ~/.ssh/
 ssh-keygen   # 生成sshkey
 
-cat > ~/.ssh/config  << EOF
+cat >> ~/.ssh/config  << EOF
 Host *
     ServerAliveInterval 60
 EOF
@@ -175,8 +175,10 @@ git clone git@github.com:openresty/openresty-devel-utils.git
 4. **因为openresty相关的库经常有更新，比如lua-resty-core。因此不重新下载库的情况下最好经常更新相关的库。**
 
 ```shell
-#!/bin/bash
-set -x
+export CC=gcc
+
+mkdir -p download-cache
+
 export JOBS=3
 export NGX_BUILD_JOBS=$JOBS
 export LUAJIT_PREFIX=/opt/luajit21
@@ -188,6 +190,7 @@ export PCRE_PREFIX=/opt/pcre
 export PCRE_LIB=$PCRE_PREFIX/lib
 export PCRE_INC=$PCRE_PREFIX/include
 export OPENSSL_PREFIX=/opt/ssl
+#export OPENSSL_PREFIX=/opt/boringssl
 export OPENSSL_LIB=$OPENSSL_PREFIX/lib
 export OPENSSL_INC=$OPENSSL_PREFIX/include
 export LIBDRIZZLE_PREFIX=/opt/drizzle
@@ -195,137 +198,120 @@ export LIBDRIZZLE_INC=$LIBDRIZZLE_PREFIX/include/libdrizzle-1.0
 export LIBDRIZZLE_LIB=$LIBDRIZZLE_PREFIX/lib
 export LD_LIBRARY_PATH=$LUAJIT_LIB:$LD_LIBRARY_PATH
 export DRIZZLE_VER=2011.07.21
-export TEST_NGINX_SLEEP=0.06
-
-export NGINX_VERSION=1.17.8
-export OPENSSL_VER=1.1.1g
+export TEST_NGINX_SLEEP=0.006
+export NGINX_VERSION=1.19.9
+export OPENSSL_VER=1.1.1i
 export OPENSSL_PATCH_VER=1.1.1f
-export CC=clang
+sudo ln -s /usr/bin/python2 /usr/bin/python
 
-function download_prepare()
+function download()
 {
-    sudo cpanm --notest Test::Nginx IPC::Run > build.log 2>&1 || (cat build.log && exit 1)
-
-    if [ ! -f download-cache/drizzle7-$DRIZZLE_VER.tar.gz ]; then wget -P download-cache http://openresty.org/download/drizzle7-$DRIZZLE_VER.tar.gz; fi
-    if [ ! -f download-cache/pcre-$PCRE_VER.tar.gz ]; then wget -P download-cache https://ftp.pcre.org/pub/pcre/pcre-$PCRE_VER.tar.gz; fi
-    if [ ! -f download-cache/openssl-$OPENSSL_VER.tar.gz ]; then wget -P download-cache https://www.openssl.org/source/openssl-$OPENSSL_VER.tar.gz || wget -P download-cache https://www.openssl.org/source/old/${OPENSSL_VER//[a-z]/}/openssl-$OPENSSL_VER.tar.gz; fi
-
-    git clone https://github.com/openresty/test-nginx.git
-    git clone https://github.com/openresty/openresty.git ../openresty
-    git clone https://github.com/openresty/no-pool-nginx.git ../no-pool-nginx
-    git clone https://github.com/openresty/openresty-devel-utils.git
-    git clone https://github.com/openresty/mockeagain.git
-    git clone https://github.com/openresty/lua-cjson.git lua-cjson
-    git clone https://github.com/openresty/lua-upstream-nginx-module.git ../lua-upstream-nginx-module
-    git clone https://github.com/openresty/echo-nginx-module.git ../echo-nginx-module
-    git clone https://github.com/openresty/nginx-eval-module.git ../nginx-eval-module
-    git clone https://github.com/simpl/ngx_devel_kit.git ../ndk-nginx-module
-    git clone https://github.com/FRiCKLE/ngx_coolkit.git ../coolkit-nginx-module
-    git clone https://github.com/openresty/headers-more-nginx-module.git ../headers-more-nginx-module
-    git clone https://github.com/openresty/drizzle-nginx-module.git ../drizzle-nginx-module
-    git clone https://github.com/openresty/set-misc-nginx-module.git ../set-misc-nginx-module
-    git clone https://github.com/openresty/memc-nginx-module.git ../memc-nginx-module
-    git clone https://github.com/openresty/rds-json-nginx-module.git ../rds-json-nginx-module
-    git clone https://github.com/openresty/srcache-nginx-module.git ../srcache-nginx-module
-    git clone https://github.com/openresty/redis2-nginx-module.git ../redis2-nginx-module
-    git clone https://github.com/openresty/lua-resty-core.git ../lua-resty-core
-    git clone https://github.com/openresty/lua-resty-lrucache.git ../lua-resty-lrucache
-    git clone https://github.com/openresty/lua-resty-mysql.git ../lua-resty-mysql
-    git clone https://github.com/openresty/stream-lua-nginx-module.git ../stream-lua-nginx-module
-    git clone -b v2.1-agentzh https://github.com/openresty/luajit2.git luajit2
-    git clone https://github.com/openresty/lua-resty-string.git ../lua-resty-string
-
-    # mysql -uroot -e 'create database ngx_test; grant all on ngx_test.* to "ngx_test"@"%" identified by "ngx_test"; flush privileges;'
-
-    # sudo iptables -I OUTPUT 1 -p udp --dport 10086 -j REJECT
-    # sudo iptables -I OUTPUT -p tcp --dst 127.0.0.2 --dport 12345 -j DROP
-    # sudo iptables -I OUTPUT -p udp --dst 127.0.0.2 --dport 12345 -j DROP
+   if [ ! -f download-cache/drizzle7-$DRIZZLE_VER.tar.gz ]; then wget -P download-cache http://openresty.org/download/drizzle7-$DRIZZLE_VER.tar.gz; fi
+   if [ ! -f download-cache/pcre-$PCRE_VER.tar.gz ]; then wget -P download-cache https://ftp.pcre.org/pub/pcre/pcre-$PCRE_VER.tar.gz; fi
+   if [ ! -f download-cache/openssl-$OPENSSL_VER.tar.gz ]; then wget -P download-cache https://www.openssl.org/source/openssl-$OPENSSL_VER.tar.gz || wget -P download-cache https://www.openssl.org/source/old/${OPENSSL_VER//[a-z]/}/openssl-$OPENSSL_VER.tar.gz; fi
+   git clone https://github.com/openresty/test-nginx.git
+   git clone https://github.com/openresty/openresty.git ../openresty
+   git clone https://github.com/openresty/no-pool-nginx.git ../no-pool-nginx
+   git clone https://github.com/openresty/openresty-devel-utils.git
+   git clone https://github.com/openresty/mockeagain.git
+   git clone https://github.com/openresty/lua-cjson.git lua-cjson
+   git clone https://github.com/openresty/lua-upstream-nginx-module.git ../lua-upstream-nginx-module
+   git clone https://github.com/openresty/echo-nginx-module.git ../echo-nginx-module
+   git clone https://github.com/openresty/nginx-eval-module.git ../nginx-eval-module
+   git clone https://github.com/simpl/ngx_devel_kit.git ../ndk-nginx-module
+   git clone https://github.com/FRiCKLE/ngx_coolkit.git ../coolkit-nginx-module
+   git clone https://github.com/openresty/headers-more-nginx-module.git ../headers-more-nginx-module
+   git clone https://github.com/openresty/drizzle-nginx-module.git ../drizzle-nginx-module
+   git clone https://github.com/openresty/set-misc-nginx-module.git ../set-misc-nginx-module
+   git clone https://github.com/openresty/memc-nginx-module.git ../memc-nginx-module
+   git clone https://github.com/openresty/rds-json-nginx-module.git ../rds-json-nginx-module
+   git clone https://github.com/openresty/srcache-nginx-module.git ../srcache-nginx-module
+   git clone https://github.com/openresty/redis2-nginx-module.git ../redis2-nginx-module
+   git clone https://github.com/openresty/lua-resty-core.git ../lua-resty-core
+   git clone https://github.com/openresty/lua-resty-lrucache.git ../lua-resty-lrucache
+   git clone https://github.com/openresty/lua-resty-mysql.git ../lua-resty-mysql
+   git clone https://github.com/openresty/lua-resty-string.git ../lua-resty-string
+   git clone https://github.com/openresty/stream-lua-nginx-module.git ../stream-lua-nginx-module
+   git clone -b v2.1-agentzh https://github.com/openresty/luajit2.git luajit2
 }
 
-function make_dep()
+function make_deps()
 {
-    cd luajit2/
-    make -j$JOBS CCDEBUG=-g Q= PREFIX=$LUAJIT_PREFIX CC=$CC XCFLAGS='-DLUA_USE_APICHECK -DLUA_USE_ASSERT -msse4.2' > build.log 2>&1 || (cat build.log && exit 1)
+   cd luajit2/
+   make -j$JOBS CCDEBUG=-g Q= PREFIX=$LUAJIT_PREFIX CC=$CC XCFLAGS='-DLUA_USE_APICHECK -DLUA_USE_ASSERT -msse4.2'
+   sudo make install PREFIX=$LUAJIT_PREFIX
+   cd ..
+   tar xzf download-cache/drizzle7-$DRIZZLE_VER.tar.gz && cd drizzle7-$DRIZZLE_VER
+   ./configure --prefix=$LIBDRIZZLE_PREFIX --without-server
 
-    #make -j$JOBS CCDEBUG=-g Q= PREFIX=$LUAJIT_PREFIX CC=$CC XCFLAGS='-DLUA_USE_APICHECK -DLUA_USE_ASSERT -msse4.2 -DLUAJIT_USE_VALGRIND -DLUAJIT_USE_SYSMALLOC' CCDEBUG='-g' > build.log 2>&1 || (cat build.log && exit 1)
-    sudo make install PREFIX=$LUAJIT_PREFIX > build.log 2>&1 || (cat build.log && exit 1)
-    cd ..
-
-    tar xzf download-cache/drizzle7-$DRIZZLE_VER.tar.gz && cd drizzle7-$DRIZZLE_VER
-    ./configure --prefix=$LIBDRIZZLE_PREFIX --without-server > build.log 2>&1 || { cat build.log; exit 1; }
-
-    sudo ln -s /usr/bin/python2 /usr/bin/python
-    which python
-    make libdrizzle-1.0 -j$JOBS > build.log 2>&1 || (cat build.log && exit 1)
-    sudo make install-libdrizzle-1.0 > build.log 2>&1 || (cat build.log && exit 1)
-    sudo rm /usr/bin/python
-
-    pwd
-    cd ../mockeagain/ && make CC=$CC -j$JOBS && cd ..
-
-    cd lua-cjson/ && make -j$JOBS && sudo make install && cd ..
-
-    tar zxf download-cache/pcre-$PCRE_VER.tar.gz
-    cd pcre-$PCRE_VER/
-    ./configure --prefix=$PCRE_PREFIX --enable-jit --enable-utf --enable-unicode-properties > build.log 2>&1 || (cat build.log && exit 1)
-    make -j$JOBS > build.log 2>&1 || (cat build.log && exit 1)
-    sudo PATH=$PATH make install > build.log 2>&1 || (cat build.log && exit 1)
-    cd ..
-
-    tar zxf download-cache/openssl-$OPENSSL_VER.tar.gz
-    cd openssl-$OPENSSL_VER/
-    patch -p1 < ../../openresty/patches/openssl-$OPENSSL_PATCH_VER-sess_set_get_cb_yield.patch
-    ./config no-threads shared enable-ssl3 enable-ssl3-method -g --prefix=$OPENSSL_PREFIX -DPURIFY > build.log 2>&1 || (cat build.log && exit 1)
-    make -j$JOBS > build.log 2>&1 || (cat build.log && exit 1)
-    sudo make PATH=$PATH install_sw > build.log 2>&1 || (cat build.log && exit 1)
-    cd ..
+   make libdrizzle-1.0 -j$JOBS
+   sudo make install-libdrizzle-1.0
+   cd ../mockeagain/ && make CC=$CC -j$JOBS && cd ..
+   cd lua-cjson/ && make -j$JOBS && sudo make install && cd ..
+   tar zxf download-cache/pcre-$PCRE_VER.tar.gz
+   cd pcre-$PCRE_VER/
+   ./configure --prefix=$PCRE_PREFIX --enable-jit --enable-utf --enable-unicode-properties
+   make -j$JOBS
+   sudo PATH=$PATH make install
+   cd ..
+   tar zxf download-cache/openssl-$OPENSSL_VER.tar.gz
+   cd openssl-$OPENSSL_VER/
+   patch -p1 < ../../openresty/patches/openssl-$OPENSSL_PATCH_VER-sess_set_get_cb_yield.patch
+   ./config shared enable-ssl3 enable-ssl3-method -g --prefix=$OPENSSL_PREFIX -DPURIFY
+   make -j$JOBS
+   sudo make PATH=$PATH install_sw
+   cd ..
 }
 
-function make_openresty()
-{
-    rm -fr buildroot
-    sh util/build.sh $NGINX_VERSION > build.log 2>&1 || { cat build.log && exit 1; }
-}
 
 export PATH=$PWD/work/nginx/sbin:$PWD/openresty-devel-utils:$PATH
 export NGX_BUILD_CC=$CC
 
-download_prepare
-make_dep
-make_openresty
+function make_ngx()
+{
+    rm -fr buildroot
+    sh util/build.sh $NGINX_VERSION 2>&1 | tee build.log
+}
 
+download
+make_deps
+make_ngx
 
-nginx -V
-ldd `which nginx`|grep -E 'luajit|ssl|pcre'
+find t -name "*.t" | xargs reindex >/dev/null 2>&1
+sudo rm  /usr/bin/python
 
-export LD_PRELOAD=$PWD/mockeagain/mockeagain.so
-export LD_LIBRARY_PATH=$PWD/mockeagain:$LD_LIBRARY_PATH
-export TEST_NGINX_RESOLVER=8.8.8.8
-dig +short myip.opendns.com @resolver1.opendns.com || exit 0
-dig +short @$TEST_NGINX_RESOLVER openresty.org || exit 0
-dig +short @$TEST_NGINX_RESOLVER agentzh.org || exit 0
-echo "LD_PRELOAD = $LD_PRELOAD"
-
-# export TEST_NGINX_CHECK_LEAK=1
-# export TEST_NGINX_POSTPONE_OUTPUT=1
-# export TEST_NGINX_EVENT_TYPE=poll
-# export MOCKEAGAIN=w
-# export MOCKEAGAIN_VERBOSE=1
-# export TEST_NGINX_NO_CLEAN=1
-# export TEST_NGINX_CHECK_LEAK_COUNT=1200
-# export TEST_NGINX_CHECK_LEAK_COUNT=1000
-
-用 Test::Nginx::Socket  测试台跑用例时，可以通过下面这个环境变量来开启“每语句 full GC 模式“:
-# export TEST_NGINX_INIT_BY_LUA="debug.sethook(function () collectgarbage() end, 'l') jit.off() package.path = '/usr/share/lua/5.1/?.lua;$PWD/../lua-resty-core/lib/?.lua;$PWD/../lua-resty-lrucache/lib/?.lua;' .. (package.path or '') require 'resty.core' require('resty.core.base').set_string_buf_size(1) require('resty.core.regex').set_buf_grow_ratio(1)"
 reindex  t/*.t 2>&1 | grep -v skipped
 ngx-releng
-
+#nginx -V
+ldd `which nginx`|grep -E 'luajit|ssl|pcre'
+export LD_PRELOAD=$PWD/mockeagain/mockeagain.so
+export LD_LIBRARY_PATH=$PWD/mockeagain:$LD_LIBRARY_PATH
+export TEST_NGINX_RESOLVER=8.8.4.4
 #export TEST_NGINX_USE_VALGRIND=1
-prove -I./ -Itest-nginx/lib -r t
-exit 0
+#export TEST_NGINX_NO_CLEAN=1
+#export TEST_NGINX_CHECK_LEAK=1
+#export TEST_NGINX_CHECK_LEAK_COUNT=1000
 
-prove -I./ -Itest-nginx/lib -r t/002*
-prove -I./ -Itest-nginx/lib -r t/023-rewrite/sanity.t
+#export TEST_NGINX_RANDOMIZE=1
+
+#export TEST_NGINX_EVENT_TYPE=poll
+#export TEST_NGINX_POSTPONE_OUTPUT=1
+#export MOCKEAGAIN=w
+##export MOCKEAGAIN=rw
+#export MOCKEAGAIN_VERBOSE=1
+
+#dig +short myip.opendns.com @resolver1.opendns.com || exit 0
+#dig +short @$TEST_NGINX_RESOLVER openresty.org || exit 0
+#dig +short @$TEST_NGINX_RESOLVER agentzh.org || exit 0
+
+#prove -j6 -I. -Itest-nginx/lib t/
+
+#prove -I. -Itest-nginx/lib t/166-ssl-client-hello.t
+
+
+# 用 Test::Nginx::Socket  测试台跑用例时，可以通过下面这个环境变量来开启“每语句 full GC 模式“:
+# export TEST_NGINX_INIT_BY_LUA="debug.sethook(function () collectgarbage() end, 'l') jit.off() package.path = '/usr/share/lua/5.1/?.lua;$PWD/../lua-resty-core/lib/?.lua;$PWD/../lua-resty-lrucache/lib/?.lua;' .. (package.path or '') require 'resty.core' require('resty.core.base').set_string_buf_size(1) require('resty.core.regex').set_buf_grow_ratio(1)"
+
 ```
 
 上述脚本有加入代码风格检查，因为检查到问题并没有让脚本退出执行。所以要注意脚本的输出结果，如果检查到问题要立即修改。代码风格不能够依靠这个检查脚本，这个脚本是帮助大家养成符合nginx风格的习惯。
