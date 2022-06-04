@@ -1,0 +1,40 @@
+diff --git a/instrumentation/nginx/CMakeLists.txt b/instrumentation/nginx/CMakeLists.txt
+index 8292435..8fa23c2 100644
+--- a/instrumentation/nginx/CMakeLists.txt
++++ b/instrumentation/nginx/CMakeLists.txt
+@@ -32,7 +32,7 @@ set_target_properties(otel_ngx_module PROPERTIES
+   PREFIX ""
+ )
+ 
+-add_dependencies(otel_ngx_module project_nginx)
++#add_dependencies(otel_ngx_module project_nginx)
+ 
+ target_include_directories(otel_ngx_module
+   PRIVATE
+diff --git a/instrumentation/nginx/nginx.cmake b/instrumentation/nginx/nginx.cmake
+index db1a168..80913fb 100644
+--- a/instrumentation/nginx/nginx.cmake
++++ b/instrumentation/nginx/nginx.cmake
+@@ -14,6 +14,7 @@ endif()
+ set(NGINX_VERSION ${NGINX_VER} CACHE STRING "Nginx version to compile against")
+ message(STATUS "nginx: using version ${NGINX_VERSION}")
+ 
++if (NOT NGINX_DIR)
+ option(NGINX_WITH_COMPAT "Enable --with-compat for the nginx module" ON)
+ 
+ if (NGINX_WITH_COMPAT)
+@@ -33,6 +34,7 @@ ExternalProject_Add(project_nginx
+ )
+ 
+ set(NGINX_DIR "${CMAKE_BINARY_DIR}/nginx/src/project_nginx")
++endif()
+ 
+ set(NGINX_INCLUDE_DIRS
+   ${NGINX_DIR}/objs
+@@ -40,5 +42,6 @@ set(NGINX_INCLUDE_DIRS
+   ${NGINX_DIR}/src/os/unix
+   ${NGINX_DIR}/src/event
+   ${NGINX_DIR}/src/http
++  ${NGINX_DIR}/src/http/v2
+   ${NGINX_DIR}/src/http/modules
+ )
